@@ -46,16 +46,16 @@ plt.imshow(dimples)
 
 
 image = dimples
-from scipy import ndimage as ndi
+from scipy import ndimage
 
 from skimage.morphology import watershed
 from skimage.feature import peak_local_max
 
 
-distance = ndi.distance_transform_edt(image)
+distance = ndimage.distance_transform_edt(image)
 local_maxi = peak_local_max(distance, indices=False, footprint=np.ones((3, 3)),
                             labels=image)
-markers = ndi.label(local_maxi)[0]
+markers = ndimage.label(local_maxi)[0]
 labels = watershed(-distance, markers, mask=image)
 
 fig, axes = plt.subplots(ncols=3, figsize=(9, 3), sharex=True, sharey=True)
@@ -171,9 +171,9 @@ from skimage.feature import canny
 edges = canny(coins/255.)
 plt.imshow(edges, 'gray')
 
-from scipy import ndimage as ndi
-fill_coins = ndi.binary_fill_holes(edges)
-label_objects, nb_labels = ndi.label(fill_coins)
+from scipy import ndimage
+fill_coins = ndimage.binary_fill_holes(edges)
+label_objects, nb_labels = ndimage.label(fill_coins)
 plt.imshow(fill_coins, 'gray')
 plt.imshow(label_objects, 'gray')
 
@@ -196,9 +196,9 @@ markers[coins > 150] = 2
 from skimage.morphology import watershed
 segmentation = watershed(elevation_map, markers)
 
-segmentation = ndi.binary_fill_holes(segmentation - 1)
+segmentation = ndimage.binary_fill_holes(segmentation - 1)
 
-labeled_coins, _ = ndi.label(segmentation)
+labeled_coins, _ = ndimage.label(segmentation)
 
 
 #--------------------------------------------
@@ -213,8 +213,8 @@ histo = np.histogram(img, bins=np.arange(0, 256))
 plt.plot(histo[0])
 edges = canny(img/255.)
 plt.imshow(edges)
-fill_dimples = ndi.binary_fill_holes(edges)
-label_objects, nb_labels = ndi.label(fill_dimples)
+fill_dimples = ndimage.binary_fill_holes(edges)
+label_objects, nb_labels = ndimage.label(fill_dimples)
 plt.imshow(fill_dimples)
 sizes = np.bincount(label_objects.ravel())
 mask_sizes = sizes > 20
@@ -230,8 +230,8 @@ markers[dimples < 0.5] = 1
 markers[dimples > 0.5] = 2
 segmentation = watershed(elevation_map, markers)
 plt.imshow(segmentation)
-#segmentation = ndi.binary_fill_holes(segmentation - 1)
-labeled_coins, _ = ndi.label(segmentation)
+#segmentation = ndimage.binary_fill_holes(segmentation - 1)
+labeled_coins, _ = ndimage.label(segmentation)
 plt.imshow(labeled_coins)
 
 
@@ -241,7 +241,7 @@ kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(9,9))
 dilated = cv2.dilate(image, kernel)
 _, cnts, _ = cv2.findContours(dilated.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-test = ndi.filters.gaussian_filter(dimples, sigma=5)
+test = ndimage.filters.gaussian_filter(dimples, sigma=5)
 plt.imshow(test)
 edges = canny(img/255.)
 plt.imshow(edges)
@@ -369,8 +369,8 @@ If i fill the edges; the entire image should become 1's, as they are all connect
 """
 edges_bool = erosion2.astype(bool)
 dimples = np.invert(edges_bool).astype(np.uint8)
-fill_dimples = ndi.binary_fill_holes(dimples)
-label_objects, num_dimples = ndi.label(fill_dimples)
+fill_dimples = ndimage.binary_fill_holes(dimples)
+label_objects, num_dimples = ndimage.label(fill_dimples)
 
 plt.imshow(fill_dimples, 'gray')
 plt.imshow(label_objects, 'gray')
@@ -464,7 +464,7 @@ import cv2 #openCV
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
-from scipy import ndimage as ndi
+from scipy import ndimage
 
 imgPath = r"C:\Users\Sondrbe\Documents\Particle_Images\6061-cast-01.tif"
 
@@ -511,7 +511,7 @@ plt.imshow(dilation, 'gray')
 
 #--- Fill the particles --------
 edges_bool = dilation.astype(bool)
-fill_particles = ndi.binary_fill_holes(edges_bool)
+fill_particles = ndimage.binary_fill_holes(edges_bool)
 fill_particles = fill_particles.astype(np.uint8)
 plt.imshow(fill_particles, 'gray')
 
@@ -523,7 +523,7 @@ plt.imshow(erosion, 'gray')
 
 
 #--- Label each unique particle
-labeled_particles, num_particles = ndi.label(erosion)
+labeled_particles, num_particles = ndimage.label(erosion)
 plt.imshow(labeled_particles)
 
 
@@ -543,71 +543,16 @@ def centersParticle():
 centers = centersParticle()
     
 
-import sklearn as skl
 
-n_clusters = int(num_particles/20)
-kmeans = skl.cluster.KMeans(n_clusters=n_clusters, random_state=0).fit(centers)
-cluster_centers = kmeans.cluster_centers_
-plt.imshow(erosion,'gray')
-plt.plot([x for x,_ in cluster_centers], [y for _,y in cluster_centers], 'rs')
-plt.plot([x for x,_ in centers], [y for _,y in centers], 'bs')
 
-# Each particle is assigned a cluster:
-assigned_cluster = kmeans.labels_
 
-# Calibrate a maximum likelihood function for each cluster
 
-import pymc3 as pm3
-import numpy as np
-import numdifftools as ndt
-import pandas as pd
-from scipy.stats import norm
-import statsmodels.api as sm
-from statsmodels.base.model import GenericLikelihoodModel
-from scipy.optimize import minimize
 
-"""
-We will implement a simple ordinary least squares model like this
 
-y= xβ + ϵ(1)
-where ϵ is assumed distributed i.i.d. normal with mean 0 and variance σ2. 
-In our simple model, there is only a constant and one slope coefficient (β=[β0β1]).
-"""
 
-N = 10000
-x = 10 + 2*np.random.randn(N)
-y = 5 + x + np.random.randn(N)
-df = pd.DataFrame({'y':y, 'x':x})
-df['constant'] = 1
 
-df.head()
 
-# First, define the log-likelihood function
-def _ll_ols(y, X, beta, sigma):
-    mu = X.dot(beta)
-    return norm(mu,sigma).logpdf(y).sum()
 
-class MyOLS(GenericLikelihoodModel):
-    def __init__(self, endog, exog, **kwds):
-	     super(MyOLS, self).__init__(endog, exog, **kwds)
-    def nloglikeobs(self, params):
-	     sigma = params[-1]
-	     beta = params[:-1]
-	     ll = _ll_ols(self.endog, self.exog, beta, sigma)
-	     return -ll
-    def fit(self, start_params=None, maxiter=10000, maxfun=5000, **kwds):
-        # we have one additional parameter and we need to add it for summary
-        self.exog_names.append('sigma')
-        if start_params == None:
-            # Reasonable starting values
-            start_params = np.append(np.zeros(self.exog.shape[1]), .5)
-            return super(MyOLS, self).fit(start_params=start_params,maxiter=maxiter, maxfun=maxfun, **kwds)
-
-sm_ols_manual = MyOLS(df.y,df[['constant','x']]).fit()
-print(sm_ols_manual.summary())
-
-plt.plot(x,y, 'bo')
-plt.plot(np.arange(0,20,2), 5.04+0.9978*np.arange(0,20,2))
 """
 For each cluster, I should calibrate a probability distribution.
 Outputs are direction, distance and area, so these must be random variables.
@@ -707,53 +652,54 @@ clf = clf.fit([x[1] for x in T], [x[0] for x in T])
 
 
 
-# Initialize boundaries of a generated image:
-new_img = np.zeros((size[0]+2*w, size[1]+2*h))
-row1_ind = np.random.randint(size[0]-w)
-col1_ind = np.random.randint(size[1]-h)
-square1_ind = np.random.randint(size[1]-max(h,w))
-
-row_bott_ind = np.random.randint(size[0]-w)
-col_right_ind = np.random.randint(size[1]-h)
-square_upRight_ind = np.random.randint(size[1]-max(h,w))
-
-img_col1_slice = img[np.ix_(range(row1_ind, row1_ind+w), range(0,size[1]))]
-img_row1_slice = img[np.ix_(range(0,size[1]), range(col1_ind, col1_ind+h))]
-img_square1_slice = img[np.ix_(range(square1_ind,square1_ind+w), range(square1_ind,square1_ind+h))]
-
-new_img[range(w), h:-h] = img_col1_slice
-new_img[w:-w, range(h)] = img_row1_slice
-new_img[:w,:h] = img_square1_slice
-
-plt.imshow(new_img)
-
-
 # Assess performance with Cross-validation measures:
 
 
 # Generate a new image, with correct void volume fraction:
-c = 0.
-TOL = 0.04
-while True:
-    work_img = copy.deepcopy(new_img)
-    for pixel1 in range(w, size[0]+w):
-        for pixel2 in range(h, size[1]+h):
-            subMatrix = work_img[np.ix_(range(pixel1-w,pixel1+w+1), range(pixel2-h,pixel2+h+1))]
-            N_ij_extra = subMatrix.flatten()
-            M_ij = N_ij_extra[:(2*w+1)*h + w]
-            p_ij = clf.predict_proba([M_ij])[0][1]
-            p_ij_adjusted = p_ij + c*np.sqrt(p_ij*(1-p_ij))
-            x_ij = np.random.choice([1,0], p = [p_ij_adjusted, 1 - p_ij_adjusted])
-            work_img[pixel1, pixel2] = x_ij
-    VF = np.sum(work_img)/np.sum(img)
-    if (VF < 1): 
-        VF = 1 / VF
-        c += 0.005
-    else: c -= 0.005
-    print(VF)
-    if (VF-1 <= TOL): break
-    print('An image is generated...')
-final_img = work_img[h:-h, w:-w]
+def generateImage(size):
+    # Initialize boundaries of a generated image:
+    new_img = np.zeros((size[0]+2*w, size[1]+2*h))
+    row1_ind = np.random.randint(size[0]-w)
+    col1_ind = np.random.randint(size[1]-h)
+    square1_ind = np.random.randint(size[1]-max(h,w))
+    
+    row_bott_ind = np.random.randint(size[0]-w)
+    col_right_ind = np.random.randint(size[1]-h)
+    square_upRight_ind = np.random.randint(size[1]-max(h,w))
+    
+    img_col1_slice = img[np.ix_(range(row1_ind, row1_ind+w), range(0,size[1]))]
+    img_row1_slice = img[np.ix_(range(0,size[1]), range(col1_ind, col1_ind+h))]
+    img_square1_slice = img[np.ix_(range(square1_ind,square1_ind+w), range(square1_ind,square1_ind+h))]
+    
+    new_img[range(w), h:-h] = img_col1_slice
+    new_img[w:-w, range(h)] = img_row1_slice
+    new_img[:w,:h] = img_square1_slice
+    
+    plt.imshow(new_img)
+    
+    c = 0.
+    TOL = 0.04
+    while True:
+        work_img = copy.deepcopy(new_img)
+        for pixel1 in range(w, size[0]+w):
+            for pixel2 in range(h, size[1]+h):
+                subMatrix = work_img[np.ix_(range(pixel1-w,pixel1+w+1), range(pixel2-h,pixel2+h+1))]
+                N_ij_extra = subMatrix.flatten()
+                M_ij = N_ij_extra[:(2*w+1)*h + w]
+                p_ij = clf.predict_proba([M_ij])[0][1]
+                p_ij_adjusted = p_ij + c*np.sqrt(p_ij*(1-p_ij))
+                x_ij = np.random.choice([1,0], p = [p_ij_adjusted, 1 - p_ij_adjusted])
+                work_img[pixel1, pixel2] = x_ij
+        VF = np.sum(work_img)/np.sum(img)
+        if (VF < 1): 
+            VF = 1 / VF
+            c += 0.005
+        else: c -= 0.005
+        print(VF)
+        if (VF-1 <= TOL): break
+        print('An image is generated...')
+    final_img = work_img[h:-h, w:-w]
+    return final_img
 
 fig, [ax1,ax2] = plt.subplots(1,2)
 ax1.set_title('Image from experiments')
@@ -801,4 +747,175 @@ twoPointCrossCorr = tpcf(sample1, rbins, sample2, do_auto=False, period=n1*n2)
 #twoPointCrossCorr = tpcf(sample1, np.logspace(-1, 1, 10), period=n1*n2)
 plt.plot(twoPointCrossCorr)
 
+
+"""
+I think I know how to generate 3D images.
+Create all 3 boundaries, in 3D space. For each pixel, calculate the probability 
+of a 1 pixel, and average these 3 probabilities.
+Then generate the box with distributions!
+
+When plotting the results, I could plot each as a cube in a 3D plot.
+Pixel 1 will range between (0,0,0), (1,0,0), (0,1,0), (1,1,0), and for z=1 as well.
+Could draw a surface plot here, as a hyperplane...
+"""
+
+# Perhaps generate a lot of pictures, and stack them according to a minimum 
+# MSE error?
+def Loss(images):
+    totMSE = 0
+    for image1,image2 in zip(images[::-1], images[1::]):
+        mse = ((img1 - img2) ** 2).mean(axis=None)
+        totMSE += mse
+    return totMSE
+
+# A random slice through the generated 3D object should have similar statistical 
+# attributes/values as the input images.
+# I guess I could keep reordering them until the same statistical values are obtained.
+# Thus I need a measure for statistical similarity.
+    
+"""
+I should simply generate a lot of images, and stack them in a different order.
+I should have a statistical measure, to ensure that the slices of the other 
+dimensions preserves the statistical distribution.
+I could e.g. use Genetic Algorithm to try to minimize the differences in statistical
+distribution, by re-ordering the image stack!
+
+Or, perhaps generate three 3D blocks, and take some mean value in each pixel..
+
+Or, order one stack to prefer clusters?
+"""
+
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+
+x,y = np.mgrid[0:5,0:5]
+x = x.flatten(); y = y.flatten()
+z = np.random.randint(low=0, high=10, size=(len(x.flatten()),))
+
+ax.plot(x,y,z, 'bo')
+
+
+
+
+
+
+
+
+
+
+"""
+How to generate boundaries for a new image:
+"""
+import numpy as np
+img1, img2, img3 = img,img,img
+
+# Should definetely use a square neighborhood, as the material is isotropic and all..
+if w==h: n = h
+else: n=h
+
+# Should also generate a square box, of size equal to box_shape:
+n1 = 200
+n2 = 200
+n3 = 200
+size = (n1, n2, n3)
+
+# Initialize boundaries of a generated image:
+new_img = np.zeros((size[0]+2*n, size[1]+2*n, size[2]+2*n))
+boundaryImgSize1 = (size[0]+n+1, size[1]+n+1)
+boundaryImgSize2 = (size[1]+n+1, size[2]+n+1)
+boundaryImgSize3 = (size[0]+n+1, size[2]+n+1)
+boundaryImg1 = generateImage(boundaryImgSize1)
+boundaryImg2 = generateImage(boundaryImgSize2)
+boundaryImg3 = generateImage(boundaryImgSize3)
+# Must initialize n rows of px's in each dimension. All outer rows are only 0's, 
+# the inner is 6 generated images in correct size!
+new_img[n-1,n-1:,n-1:] = boundaryImg2
+new_img[n-1:,n-1:,n-1] = boundaryImg1
+new_img[n-1:,n-1,n-1:] = boundaryImg3
+
+"""
+final_img = new_img[2*n:, 2*n:, 2*n:]
+"""
+
+
+
+
+
+
+"""
+How to plot the generated particles in 3D space:
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
+
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+
+def plot_cube(cube_definition):
+    cube_definition_array = [
+        np.array(list(item))
+        for item in cube_definition
+    ]
+
+    points = []
+    points += cube_definition_array
+    vectors = [
+        cube_definition_array[1] - cube_definition_array[0],
+        cube_definition_array[2] - cube_definition_array[0],
+        cube_definition_array[3] - cube_definition_array[0]
+    ]
+
+    points += [cube_definition_array[0] + vectors[0] + vectors[1]]
+    points += [cube_definition_array[0] + vectors[0] + vectors[2]]
+    points += [cube_definition_array[0] + vectors[1] + vectors[2]]
+    points += [cube_definition_array[0] + vectors[0] + vectors[1] + vectors[2]]
+
+    points = np.array(points)
+
+    edges = [
+        [points[0], points[3], points[5], points[1]],
+        [points[1], points[5], points[7], points[4]],
+        [points[4], points[2], points[6], points[7]],
+        [points[2], points[6], points[3], points[0]],
+        [points[0], points[2], points[4], points[1]],
+        [points[3], points[6], points[7], points[5]]
+    ]
+
+    faces = Poly3DCollection(edges, linewidths=1, edgecolors='k')
+    faces.set_facecolor((0,0,1,0.1))
+
+    ax.add_collection3d(faces)
+
+    # Plot the points themselves to force the scaling of the axes
+    #ax.scatter(points[:,0], points[:,1], points[:,2], s=0)
+
+    #ax.set_aspect('equal')
+    return
+
+
+
+def plotParticles3D(image):
+    n1,n2,n3 = np.shape(image)
+    for px1 in range(0,n1):
+        for px2 in range(0,n2):
+            for px3 in range(0,n3):
+                if image[px1,px2,px3] == 1:
+                    cube_definition = [
+                            (px1,px2,px3), (px1+1,px2,px3), 
+                            (px1,px2+1,px3), (px1,px2,px3+1)]     
+                    plot_cube(cube_definition)
+    ax.set_xlim(0, n1)
+    ax.set_ylim(0, n2)
+    ax.set_zlim(0, n3)                    
+    return
+                    
+
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+plotParticles3D(new_img)
 
