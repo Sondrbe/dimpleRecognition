@@ -809,13 +809,14 @@ import numba
 @numba.jit(nopython=True, locals={'distInd': numba.int32})
 def twoPointLinealPathCorrelation(image):
     diffBuckets = int(0.5*min(image.shape[0], image.shape[1]))
-    totalAttempts = 10000
+    totalAttemptsOuter = 40000
+    totalAttemptsInner = 5000
     samePhase = np.zeros(diffBuckets)
-    totalExecuted = np.zeros(diffBuckets/10)    
-    for i in range(totalAttempts):
+    totalExecuted = np.zeros(diffBuckets)    
+    for i in range(totalAttemptsOuter):
         row1 = np.random.randint(low=0, high=image.shape[0])
         col1 = np.random.randint(low=0, high=image.shape[1])
-        for i in range(totalAttempts):
+        for i in range(totalAttemptsInner):
             row2 = np.random.randint(low=max(0,row1-30), high=min(row1+30, image.shape[0]))
             col2 = np.random.randint(low=max(0,col1-30), high=min(col1+30, image.shape[1]))
             dist = ((row1-row2)**2 + (col1-col2)**2)**0.5
@@ -831,6 +832,22 @@ def twoPointLinealPathCorrelation(image):
 performance = twoPointLinealPathCorrelation(final_img)
 plt.plot(range(len(performance)), performance)
 plt.plot(range(len(performance)), performance, 'k*')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
