@@ -455,7 +455,7 @@ Convexity measure:
 
 
 #--------------------------------------------------------------------------------
-#  The correct code for dimple tracing
+#  The correct code for particle tracing
 #--------------------------------------------------------------------------------
 import cv2
 import numpy as np
@@ -474,12 +474,12 @@ def change_contrast(img, level):
         return 128 + factor * (c - 128)
     return img.point(contrast)
 
-img = change_contrast(Image.open(imgPath), 100)
-img = np.array(img)
+image = change_contrast(Image.open(imgPath), 100)
+image = np.array(image)
 
-resolution = np.shape(img)
-img2 = img[:int(92/100*resolution[0]), :]
-plt.imshow(img)
+resolution = np.shape(image)
+img = image[:int(93/100*resolution[0]), :]
+plt.imshow(img, 'gray')
 
 
 #-------------------- Edge tracing -------------------
@@ -492,17 +492,6 @@ edges = edges / np.amax(edges)
 edges = edges.astype(np.uint8)    
 plt.imshow(edges, 'gray')
 
-#plt.figure()
-#kernel = np.ones((3,3),np.uint8)
-#closing = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
-#plt.imshow(closing)
-#fill_particles = ndi.binary_fill_holes(closing)
-#plt.imshow(fill_particles)
-#labeled_particles, num_particles = ndi.label(closing)
-#plt.imshow(labeled_particles) 
-
-#edges_bool = edges.astype(bool)
-#dimples = np.invert(edges_bool).astype(np.uint8)
 
 #--- Dilate the images, to close the edges
 kernel = np.ones((2,2),np.uint8)
@@ -526,12 +515,27 @@ plt.imshow(erosion, 'gray')
 labeled_particles, num_particles = ndimage.label(erosion)
 plt.imshow(labeled_particles)
 
+"""
+"labeled_particles" are now an 2D array, where background are 0's,
+and all pix's with value 1 corresponds to the first particle,
+all px's with value 133 corresponds to the 133th particle, etc.
+"""
 
+
+
+
+
+
+"""
+Statistical comparison of particles and dimples.
+A Voronoi diagram is created from the particles, and the resulting 
+"dimples" are compared to the dimples in the images.
+"""
 
 """
 I will now write functions to obtain the center of a particle
 """
-def centersParticle():
+def centersParticle(labeled_particles, num_particles):
     centers = []
     for num in range(1, num_particles+1):
         indices = np.where(labeled_particles==num)
@@ -540,8 +544,189 @@ def centersParticle():
         centers.append((x_pos,y_pos))
     return centers
 
-centers = centersParticle()
+centers = centersParticle(labeled_particles, num_particles)
+
+vor = Voronoi(centers)
+
+# Plot it:
+voronoi_plot_2d(vor)
+plt.show()
+
+
+
+"""
+A function to obtain the regions of the outer voronoi graph
+"""
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.spatial import Voronoi
+
+def voronoi_finite_polygons_2d(vor, radius=None):
+    """
+    Reconstruct infinite voronoi regions in a 2D diagram to finite
+    regions.
+
+    Parameters
+    ----------
+    vor : Voronoi
+        Input diagram
+    radius : float, optional
+        Distance to 'points at infinity'.
+
+    Returns
+    -------
+    regions : list of tuples
+        Indices of vertices in each revised Voronoi regions.
+    vertices : list of tuples
+        Coordinates for revised Voronoi vertices. Same as coordinates
+        of input vertices, with 'points at infinity' appended to the
+        end.
+
+    """
+
+    if vor.points.shape[1] != 2:
+        raise ValueError("Requires 2D input")
+
+    new_regions = []
+    new_vertices = vor.vertices.tolist()
+
+    center = vor.points.mean(axis=0)
+    if radius is None:
+        radius = vor.points.ptp().max()
+
+    # Construct a map containing all ridges for a given point
+    all_ridges = {}
+    for (p1, p2), (v1, v2) in zip(vor.ridge_points, vor.ridge_vertices):
+        all_ridges.setdefault(p1, []).append((p2, v1, v2))
+        all_ridges.setdefault(p2, []).append((p1, v1, v2))
+
+    # Reconstruct infinite regions
+    for p1, region in enumerate(vor.point_region):
+        vertices = vor.regions[region]
+
+        if all(v >= 0 for v in vertices):
+            # finite region
+            new_regions.append(vertices)
+            continue
+
+        # reconstruct a non-finite region
+        ridges = all_ridges[p1]
+        new_region = [v for v in vertices if v >= 0]
+
+        for p2, v1, v2 in ridges:
+            if v2 < 0:
+                v1, v2 = v2, v1
+            if v1 >= 0:
+                # finite ridge: already in the region
+                continue
+
+            # Compute the missing endpoint of an infinite ridge
+
+            t = vor.points[p2] - vor.points[p1] # tangent
+            t /= np.linalg.norm(t)
+            n = np.array([-t[1], t[0]])  # normal
+
+            midpoint = vor.points[[p1, p2]].mean(axis=0)
+            direction = np.sign(np.dot(midpoint - center, n)) * n
+            far_point = vor.vertices[v2] + direction * radius
+
+            new_region.append(len(new_vertices))
+            new_vertices.append(far_point.tolist())
+
+        # sort region counterclockwise
+        vs = np.asarray([new_vertices[v] for v in new_region])
+        c = vs.mean(axis=0)
+        angles = np.arctan2(vs[:,1] - c[1], vs[:,0] - c[0])
+        new_region = np.array(new_region)[np.argsort(angles)]
+
+        # finish
+        new_regions.append(new_region.tolist())
+
+    return new_regions, np.asarray(new_vertices)
+
+
+# Obtain the indices (regions) and corresponding coordinates (vertices) for each region
+regions, vertices = voronoi_finite_polygons_2d(vor)
+
+# colorize
+for region in regions:
+    polygon = vertices[region]
+    plt.fill(*zip(*polygon), alpha=0.4)
+
+# Plot the points and set the boundaries
+plt.plot(points[:,0], points[:,1], 'ko')
+plt.xlim(vor.min_bound[0] - 0.1, vor.max_bound[0] + 0.1)
+plt.ylim(vor.min_bound[1] - 0.1, vor.max_bound[1] + 0.1)
+
+
+
+"""
+Perform statistics on the regions that are inside the convex hull only:
+"""
+# Obtain the convex hull
+from scipy.spatial import ConvexHull
+hull = ConvexHull(centers)
+centers = np.array(centers)
+
+import matplotlib.pyplot as plt
+plt.plot(centers[:,0], centers[:,1], 'o')
+for simplex in hull.simplices:
+    plt.plot(centers[simplex, 0], centers[simplex, 1], 'k-')
     
+# Save all the coordinates in the convex hull:    
+hull_coords = []
+for vert in hull.vertices:
+    hull_coords.append(tuple(hull.points[vert]))
+    
+# Only perform statistics on the regions inside the convex hull:    
+correct_regions = []    
+hull_polygon = Polygon(hull_coords)
+for region in regions:
+    polygon = vertices[region]
+    region_polygon = Polygon(polygon)
+    if hull_polygon.contains(region_polygon):
+        # The region is inside the convex hull:
+        correct_regions.append(region_polygon)
+        #plt.fill(*zip(*polygon), alpha=0.4)
+    #else:
+    #    plt.fill(*zip(*polygon), 'k', alpha=0.4)
+
+
+# Perform statistics on these regions:
+from shapely import affinity
+affinity.rotate(region_polygon, 120)
+ImageJAngle = 1.
+
+results = ['Area', 'Perimeter', 'MinFeret', 'Feret', 'FeretAngle', 'Circularity']
+for region_polygon in correct_regions:
+    # Get area and perimeter
+    perimeter = region_polygon.length
+    area = region_polygon.area
+    # Circularity
+    circularity = 4*np.pi * area / perimeter**2
+    # Calculate the Feret (maximum caliper) diameter, and MinFeret (minimum caliper)
+    feret = -np.inf
+    minFeret = np.inf
+    angle = 0.
+    while angle < 180.:
+        angle += ImageJAngle
+        rotatedPolygon = affinity.rotate(region_polygon, angle)
+        bounds = rotatedPolygon.bounds
+        width = abs(bounds[2] - bounds[0])
+        height = abs(bounds[3] - bounds[1])
+        if max(width, height) > feret:
+            feret = max(width, height)
+            feretAngle = angle
+        if min(width, height) < minFeret:
+            minFeret = min(width, height)
+    results.append((area, perimeter, minFeret, feret, feretAngle, circularity))
+        
+
+
+
+
+
+
 
 
         

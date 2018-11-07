@@ -179,7 +179,7 @@ def generateImageFrom0s(size, clf, orig_img=[]):
                 c -= 0.005
                 if (VF-1 <= TOL): break   
     final_img = work_img[4*h:-4*h, 4*w:-4*w]
-    plt.imshow(final_img)
+    #plt.imshow(final_img)
     return final_img
 
 size = (200,200)
@@ -200,234 +200,125 @@ for i in range(num_images):
 
 
 # Assess performance with Cross-validation measures:
+"""
+from sklearn.model_selection import train_test_split
+# Sample a training set while holding out e.g 20% of the data for testing:
+x_data = [x for x,_ in T]
+y_data = [y for _,y in T]
+X_train, X_test, y_train, y_test = train_test_split(x_data, y_data, test_size=0.2, random_state=0)
+# Calibrate the model:
+clf.fit(X_train, y_train)
+# Assess performance:
+clf.score(X_test, y_test) 
+clf.score(X_train, y_train) 
+"""
+I should perhaps plot the accuracy from training and test set, as I keep 
+pruning the tree. Ideally, the accuracy on the training set will decrease while 
+the test accuracy doesn't. When the test accuracy starts to decrease, 
+I must stop pruning the model. Everything up until that point is simply great 
+for generalization to unseen problems...
+"""
 
-# Define a performance measure function.
-# As I am struggling a bit to understand the 2-point correlation function,
-# I will define it using Monte Carlo sampling instead.
-# This is slower, but easier:
+# Cross-validation:
+from sklearn.model_selection import cross_val_score
+scores = cross_val_score(clf, x_data, y_data, cv=5)
+print(scores)
+print("Accuracy: %0.6f (+/- %0.6f)" % (scores.mean(), scores.std() * 2))
+
+# Different arguments to the DecisionTreeClassifier:
+criterion = 'gini' # 'entropy'
+splitter = 'best' # 'random'
+max_depth = None # integer, e.g. 20
+min_samples_split = 2 # integer, e.g. 4
+min_samples_leaf = 1 # integer, e.g. 2
+min_weight_fraction_leaf = 0. # float
+max_features = None # 'auto', 'sqrt', 'log2'
+random_state = None #integer
+max_leaf_nodes = None # integer
+min_impurity_decrease = 0. #float
+class_weight = None # dict
+presort = False # Bool
+
+clf = tree.DecisionTreeClassifier(criterion=criterion, splitter=splitter, max_depth=max_depth, 
+       min_samples_split=min_samples_split, min_samples_leaf=min_samples_leaf, 
+       min_weight_fraction_leaf=min_weight_fraction_leaf, 
+       max_features=max_features, random_state=random_state, max_leaf_nodes=max_leaf_nodes, 
+       min_impurity_decrease=min_impurity_decrease, class_weight=class_weight, 
+       presort=presort)
+"""
+Default parameters leads to unpruned trees. Try tweaking 'max_depth' and 
+'min_samples_leaf' etc to prune them. 
+
+
+Decision tree attributes:
+classes_ : array of shape = [n_classes] or a list of such arrays
+    The classes labels (single output problem), or a list of arrays of class labels (multi-output problem).
+feature_importances_ : array of shape = [n_features]
+    Return the feature importances.
+max_features_ : int,
+    The inferred value of max_features.
+n_classes_ : int or list
+    The number of classes (for single output problems), or a list containing the number of classes for each output (for multi-output problems).
+n_features_ : int
+    The number of features when fit is performed.
+n_outputs_ : int
+    The number of outputs when fit is performed.
+tree_ : Tree object
+    The underlying Tree object. Please refer to help(sklearn.tree._tree.Tree) for attributes of Tree object and Understanding the decision tree structure for basic usage of these attributes.    
+"""
+
+
+
+
+"""
+# Define a performance measure function
 """
 
 import numba
-@numba.jit(nopython=True, locals={'distInd': numba.int32})
-def twoPointLinealPathCorrelation(image):
-    diffBuckets = int(0.5*min(image.shape[0], image.shape[1]))
-    totalAttemptsOuter = 40000
-    totalAttemptsInner = 5000
-    samePhase = np.zeros(diffBuckets)
-    totalExecuted = np.zeros(diffBuckets)    
-    for i in range(totalAttemptsOuter):
-        row1 = np.random.randint(low=0, high=image.shape[0])
-        col1 = np.random.randint(low=0, high=image.shape[1])
-        for i in range(totalAttemptsInner):
-            row2 = np.random.randint(low=max(0,row1-30), high=min(row1+30, image.shape[0]))
-            col2 = np.random.randint(low=max(0,col1-30), high=min(col1+30, image.shape[1]))
-            dist = ((row1-row2)**2 + (col1-col2)**2)**0.5
-            #if dist <= 0.5*min(image.shape[0], image.shape[1]):
-            if dist <= 30:
-                distInd = int(dist)
-                totalExecuted[distInd] += 1
-                if image[row1,col1] == 1:
-                    if image[row2, col2] == 1:
-                        samePhase[distInd] += 1  
+@numba.jit(nopython=True, locals={'distInd': numba.int32, 'max_dist':numba.int32})
+def twoPointLinealPathCorrelation(image, max_dist):
+    """
+    Improvement here:
+        Instead of sampling a lot of Monte Carlo points, simply use brute-force to 
+        calculate the correlation in the entire image. This will be much faster
+        and more accurate.
+    """
+    samePhase = np.zeros(max_dist)
+    totalExecuted = np.zeros(max_dist)    
+    for row1 in range(max_dist, image.shape[0]-max_dist):
+        for col1 in range(max_dist, image.shape[0]):
+            for row2 in range(row1-max_dist, row1+max_dist):
+                for col2 in range(col1-max_dist, col1+max_dist):
+                    dist = ((row1-row2)**2 + (col1-col2)**2)**0.5
+                    if dist <= max_dist:
+                        distInd = int(dist)
+                        totalExecuted[distInd] += 1
+                        if image[row1,col1] == 1:
+                            if image[row2, col2] == 1:
+                                samePhase[distInd] += 1  
     return samePhase/totalExecuted
 
-performance = twoPointLinealPathCorrelation(final_img)
+
+max_dist = 25 #px's
+performance = twoPointLinealPathCorrelation(final_img, max_dist)
 plt.plot(range(len(performance)), performance)
 plt.plot(range(len(performance)), performance, 'k*')
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-"""
-Try different classifiers:
-"""
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.colors import ListedColormap
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.datasets import make_moons, make_circles, make_classification
-from sklearn.neural_network import MLPClassifier
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.svm import SVC
-from sklearn.gaussian_process import GaussianProcessClassifier
-from sklearn.gaussian_process.kernels import RBF
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
-from sklearn.naive_bayes import GaussianNB
-from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
-h = .02  # step size in the mesh
-
-names = ["Nearest Neighbors", "Linear SVM", "RBF SVM", #"Gaussian Process",
-         "Decision Tree", "Random Forest", "Neural Net", "AdaBoost",
-         "Naive Bayes", "QDA"]
-
-classifiers = [
-    KNeighborsClassifier(3),
-    SVC(kernel="linear", C=0.025),
-    SVC(gamma=2, C=1),
-    #GaussianProcessClassifier(1.0 * RBF(1.0)),
-    DecisionTreeClassifier(max_depth=5),
-    RandomForestClassifier(max_depth=5, n_estimators=10, max_features=1),
-    MLPClassifier(alpha=1),
-    AdaBoostClassifier(),
-    GaussianNB(),
-    QuadraticDiscriminantAnalysis()]
-
-#datasets = [T]
-X, y = make_classification(n_features=2, n_redundant=0, n_informative=2,
-                           random_state=1, n_clusters_per_class=1)
-rng = np.random.RandomState(2)
-X += 2 * rng.uniform(size=X.shape)
-linearly_separable = (X, y)
-
-datasets = [make_moons(noise=0.3, random_state=0),
-            make_circles(noise=0.2, factor=0.5, random_state=1),
-            linearly_separable
-            ]
-figure = plt.figure(figsize=(27, 9))
-i = 1
-# iterate over datasets
-for ds_cnt, ds in enumerate(datasets):
-    # preprocess dataset, split into training and test part
-    X, y = ds
-    X = StandardScaler().fit_transform(X)
-    X_train, X_test, y_train, y_test = \
-        train_test_split(X, y, test_size=.4, random_state=42)
-
-    x_min, x_max = X[:, 0].min() - .5, X[:, 0].max() + .5
-    y_min, y_max = X[:, 1].min() - .5, X[:, 1].max() + .5
-    xx, yy = np.meshgrid(np.arange(x_min, x_max, h),
-                         np.arange(y_min, y_max, h))
-
-    # just plot the dataset first
-    cm = plt.cm.RdBu
-    cm_bright = ListedColormap(['#FF0000', '#0000FF'])
-    ax = plt.subplot(len(datasets), len(classifiers) + 1, i)
-    if ds_cnt == 0:
-        ax.set_title("Input data")
-    # Plot the training points
-    ax.scatter(X_train[:, 0], X_train[:, 1], c=y_train, cmap=cm_bright,
-               edgecolors='k')
-    # Plot the testing points
-    ax.scatter(X_test[:, 0], X_test[:, 1], c=y_test, cmap=cm_bright, alpha=0.6,
-               edgecolors='k')
-    ax.set_xlim(xx.min(), xx.max())
-    ax.set_ylim(yy.min(), yy.max())
-    ax.set_xticks(())
-    ax.set_yticks(())
-    i += 1
-    
-scores = []    
-classfs = []
-for clf in classifiers:
-    X_train, X_test, y_train, y_test = \
-        train_test_split([x for x,_ in T], [y for _,y in T], random_state=42)
-    clf.fit(X_train, y_train)
-    classfs.append(clf)
-    score = clf.score(X_test, y_test)
-    scores.append(score)
-    print('One done')
-
-    # iterate over classifiers
-    for name, clf in zip(names, classifiers):
-        ax = plt.subplot(len(datasets), len(classifiers) + 1, i)
-        clf.fit(X_train, y_train)
-        score = clf.score(X_test, y_test)
-
-        # Plot the decision boundary. For that, we will assign a color to each
-        # point in the mesh [x_min, x_max]x[y_min, y_max].
-        if hasattr(clf, "decision_function"):
-            Z = clf.decision_function(np.c_[xx.ravel(), yy.ravel()])
-        else:
-            Z = clf.predict_proba(np.c_[xx.ravel(), yy.ravel()])[:, 1]
-
-        # Put the result into a color plot
-        Z = Z.reshape(xx.shape)
-        ax.contourf(xx, yy, Z, cmap=cm, alpha=.8)
-
-        # Plot the training points
-        ax.scatter(X_train[:, 0], X_train[:, 1], c=y_train, cmap=cm_bright,
-                   edgecolors='k')
-        # Plot the testing points
-        ax.scatter(X_test[:, 0], X_test[:, 1], c=y_test, cmap=cm_bright,
-                   edgecolors='k', alpha=0.6)
-
-        ax.set_xlim(xx.min(), xx.max())
-        ax.set_ylim(yy.min(), yy.max())
-        ax.set_xticks(())
-        ax.set_yticks(())
-        if ds_cnt == 0:
-            ax.set_title(name)
-        ax.text(xx.max() - .3, yy.min() + .3, ('%.2f' % score).lstrip('0'),
-                size=15, horizontalalignment='right')
-        i += 1
-
-
-
-
-
-
-
-
-
-# Define some performance functions, to choose the optimal neighborhood size:
-# This is simply something to measure how close different images are.
 # Start with a large neighborhood, and keep decreasing it until the images 
-# likeliness starts to diverge, or opposite.
-def TPCF(image):
-    n1, n2 = np.shape(image)
-    R = np.zeros((n1,n2))
-    for dx in range(n1):
-        for dy in range(n2):
-            for pixel1 in range(n1):
-                for pixel2 in range(n2):
-                    image[pixel1, pixel2] * image[pixel1+dx, pixel2+dy]
-            R[pixel1, pixel2] = 
-            
-            
-            
-            
-import numpy as np            
-x,y = np.mgrid[0:n1,0:n2]
-x = x.flatten()
-y = y.flatten()
-z1 = img.flatten()
-z2 = final_img.flatten()
-from halotools.mock_observables import tpcf
-            
+# likeliness starts to diverge, or opposite...
 
 
-sample1 = np.vstack((x,y,z1)).T
-sample2 = np.vstack((x,y,z2)).T
-rbins = np.linspace(1,40,51)
-#rbins = np.logspace(-1, 1, 10)
 
-twoPointCrossCorr = tpcf(sample1, rbins, sample2, do_auto=False, period=n1*n2)
-#twoPointCrossCorr = tpcf(sample1, np.logspace(-1, 1, 10), period=n1*n2)
-plt.plot(twoPointCrossCorr)
+
+
+
+
+
+
+
+
+
+
 
 
 """
@@ -436,56 +327,14 @@ Create all 3 boundaries, in 3D space. For each pixel, calculate the probability
 of a 1 pixel, and average these 3 probabilities.
 Then generate the box with distributions!
 """
-
-    
-
-
-
-
-
-
-def generateImageFrom0s(size):
-    import copy
-    # Initialize a generated image to all 0's:
-    new_img = np.zeros((size[0]+2*w, size[1]+2*h))
-    
-    c = 0.
-    TOL = 0.1
-    while True:
-        work_img = copy.deepcopy(new_img)
-        for pixel1 in range(w, size[0]+w):
-            for pixel2 in range(h, size[1]+h):
-                subMatrix = work_img[np.ix_(range(pixel1-w,pixel1+w+1), range(pixel2-h,pixel2+h+1))]
-                N_ij_extra = subMatrix.flatten()
-                M_ij = N_ij_extra[:(2*w+1)*h + w]
-                p_ij = clf.predict_proba([M_ij])[0][1]
-                p_ij_adjusted = p_ij + c*np.sqrt(p_ij*(1-p_ij))
-                x_ij = np.random.choice([1,0], p = [p_ij_adjusted, 1 - p_ij_adjusted])
-                work_img[pixel1, pixel2] = x_ij
-        VF = np.sum(work_img)/np.sum(img)
-        if (VF < 1): 
-            VF = 1 / VF
-            c += 0.005
-        else: c -= 0.005
-        print(VF)
-        if (VF-1 <= TOL): break
-        print('An image is generated...')
-    final_img = work_img[2*h:, 2*w:]
-    return final_img
-"""
-How to generate boundaries for a new image:
-"""
-import numpy as np
-img1, img2, img3 = img,img,img
-
 # Should definetely use a square neighborhood, as the material is isotropic and all..
 if w==h: n = h
 else: n=h
 
 # Should also generate a square box, of size equal to box_shape:
-n1 = 200
-n2 = 200
-n3 = 200
+n1 = 50
+n2 = 50
+n3 = 50
 size = (n1, n2, n3)
 
 # Initialize boundaries of a generated image:
@@ -493,9 +342,9 @@ new_img = np.zeros((size[0]+2*n, size[1]+2*n, size[2]+2*n))
 boundaryImgSize1 = (size[0]+n+1, size[1]+n+1)
 boundaryImgSize2 = (size[1]+n+1, size[2]+n+1)
 boundaryImgSize3 = (size[0]+n+1, size[2]+n+1)
-boundaryImg1 = generateImageFrom0s(boundaryImgSize1)
-boundaryImg2 = generateImageFrom0s(boundaryImgSize2)
-boundaryImg3 = generateImageFrom0s(boundaryImgSize3)
+boundaryImg1 = generateImageFrom0s(boundaryImgSize1, clf)
+boundaryImg2 = generateImageFrom0s(boundaryImgSize2, clf)
+boundaryImg3 = generateImageFrom0s(boundaryImgSize3, clf)
 # Must initialize n rows of px's in each dimension. All outer rows are only 0's, 
 # the inner is 6 generated images in correct size!
 new_img[n-1,n-1:,n-1:] = boundaryImg2
@@ -507,11 +356,56 @@ new_img[n-1:,n-1,n-1:] = boundaryImg3
 
 """
 Now, the 3D distribution of particles are generated:
-"""
-def generate3dDistribution(new_img):
+        new_img = np.zeros((size[0]+8*w, size[1]+8*h))
+        
     c = 0.
-    VVF_expected = None
-    TOL = 0.04
+    TOL = 0.15
+    while True:
+        work_img = copy.deepcopy(new_img)
+        for pixel1 in range(h, size[0]+4*h):
+            for pixel2 in range(w, size[1]+7*w):
+                subMatrix = work_img[np.ix_(range(pixel1-w,pixel1+w+1), range(pixel2-h,pixel2+h+1))]
+                N_ij_extra = subMatrix.flatten()
+                M_ij = N_ij_extra[:(2*w+1)*h + w]
+                p_ij = clf.predict_proba([M_ij])[0][1]
+                p_ij_adjusted = p_ij + c*np.sqrt(p_ij*(1-p_ij))
+                x_ij = np.random.choice([1,0], p = [p_ij_adjusted, 1 - p_ij_adjusted])
+                work_img[pixel1, pixel2] = x_ij      
+        if len(orig_img) == 0: 
+            print('Generated an image')
+            break
+        else: # Perform the void volume fraction calibration:
+            VF = np.sum(work_img[4*h:-4*h, 4*w:-4*w])/np.sum(orig_img)
+            print(VF)
+            if (VF < 1): 
+                c += 0.005
+                if (abs(VF-1) <= TOL): break
+            else: 
+                c -= 0.005
+                if (VF-1 <= TOL): break   
+    final_img = work_img[4*h:-4*h, 4*w:-4*w]
+"""
+
+def add(img):
+    return clf.max_depth
+
+@numba.jit(nopython=True)
+def myFunc():
+    num = 0
+    for i in range(100):
+        num += add(img)
+    return num
+myFunc()
+        
+
+
+
+
+@numba.jit(nopython=True)
+def generate3dDistribution(new_img, clf):
+    c = 0.
+    VVF_expected = 0.001
+    TOL = 0.2
     tot_pxs = n1*n2*n3
     curr_px = 0
     iteration = -1
@@ -537,7 +431,7 @@ def generate3dDistribution(new_img):
                     p_ij_1 = clf.predict_proba([M_ij_1])[0][1]
                     p_ij_2 = clf.predict_proba([M_ij_2])[0][1]
                     p_ij_3 = clf.predict_proba([M_ij_3])[0][1]
-                    pi_j = (p_ij_1 + p_ij_2 + p_ij_3)/3.
+                    p_ij = (p_ij_1 + p_ij_2 + p_ij_3)/3.
                     
                     p_ij_adjusted = p_ij + c*np.sqrt(p_ij*(1-p_ij))
                     x_ij = np.random.choice([1,0], p = [p_ij_adjusted, 1 - p_ij_adjusted])
@@ -545,19 +439,18 @@ def generate3dDistribution(new_img):
                     
                     # Tell the user how much calculations that has been performed:
                     if curr_px % int(tot_pxs/30) == 0:
-                        print('Iteration '+str(iteration)+':', str(curr_px / tot_pxs) + '%')
-        #final_img = new_img[2*n:, 2*n:, 2*n:]
-        final_img = work_img[2*n:, 2*n:, 2*n:]
-        VVF = np.sum(final_img) / np.prod(np.shape(final_img))
-        if VVF_expected:
-            if VVF < VVF_expected: c += 0.005
-            else: c -= 0.005
-        if ((VVF/VVF_expected)-1 <= TOL): break
-        break
-        print('An image is generated...')
+                        print('Iteration '+str(iteration)+':', str(curr_px / tot_pxs * 100) + '%')
+        VF = np.sum(work_img[n:-n, n:-n, n:-n])/tot_pxs
+        if (VF < 1): 
+            c += 0.005
+            if (abs(VF-1) <= TOL): break
+        else: 
+            c -= 0.005
+            if (VF-1 <= TOL): break   
+    final_img = work_img[n:-n, n:-n, n:-n]                    
     return final_img
 
-final_3D_Image = generate3dDistribution(new_img)
+final_3D_Image = generate3dDistribution(new_img, clf)
 
 
 """
@@ -629,7 +522,7 @@ def plotParticles3D(image3D):
                             (px1,px2,px3), (px1+1,px2,px3), 
                             (px1,px2+1,px3), (px1,px2,px3+1)]     
                     plot_cube(cube_definition)
-        print('%f.2'%(px_count/(n1*n2*n3)*100), '%')
+        print('%.2f'%(px_count/(n1*n2*n3)*100), '%')
     ax.set_xlim(0, n1)
     ax.set_ylim(0, n2)
     ax.set_zlim(0, n3)                    
@@ -646,7 +539,7 @@ for px1 in np.random.randint(0,n1,3):
 
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
-plotParticles3D(new_img)
+plotParticles3D(final_3D_Image)
 
 
 
