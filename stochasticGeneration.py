@@ -14,7 +14,7 @@ size = (200,200)
 img = np.zeros(size)
 
 # Distribute some squares:
-square = (2,2)
+square = (1,1)
 num_squares = 50
 for n in range(num_squares):
     x_centre = np.random.randint(0,size[0])
@@ -33,8 +33,8 @@ plt.imshow(img, 'gray')
 Create the training set, and calibrate the supervised model
 """
 # Choose neighborhood size:
-w = 5
-h = 5
+w = 4
+h = 4
 
 n1, n2 = size
 # Generate the training set:
@@ -332,9 +332,9 @@ if w==h: n = h
 else: n=h
 
 # Should also generate a square box, of size equal to box_shape:
-n1 = 50
-n2 = 50
-n3 = 50
+n1 = 25
+n2 = 25
+n3 = 25
 size = (n1, n2, n3)
 
 # Initialize boundaries of a generated image:
@@ -401,11 +401,34 @@ myFunc()
 
 
 
-@numba.jit(nopython=True)
+#@numba.jit(nopython=True)
 def generate3dDistribution(new_img, clf):
+    """
+    I could perform a single iteration first, and obtain the void volume fraction.
+    Then, depending on how large the error was, I can simply scale the probabilities
+    uniformly across the entire image!
+    
+    OTHER IMPROVEMENTS:
+        Due to scaling difficulties with a quadruple nested loop and difficulties 
+        to implement a numba compiled version, I have some ideas:
+            Could generate a lot of smaller volume elements, with correct void volume 
+            fraction, that I later on can stack into the full 3D geometry.
+            This is possible if the generated cube captures the correlation 
+            in the images. This should quite easily be measured with the 2point linear
+            correlation function!
+    PLAN:
+        Generate cubes from calibrated 2D distributions.
+        These cubes should be stacked in width, height and depth, in order to obtain 
+            the full 3D geometry. This may span thousands of px's in each direction.
+        Generate the images from entirely black background, and keep the center.
+        When generating each individual cube, compare the first obtained void volume
+        fraction with the target void volume fraction. Dependent on the ratio, 
+        scale the averaged probability correspondingly...
+    """
     c = 0.
-    VVF_expected = 0.001
-    TOL = 0.2
+    VVF_expected = 0.02
+    probScalingFactor = 3.
+    TOL = 0.5
     tot_pxs = n1*n2*n3
     curr_px = 0
     iteration = -1
@@ -431,22 +454,25 @@ def generate3dDistribution(new_img, clf):
                     p_ij_1 = clf.predict_proba([M_ij_1])[0][1]
                     p_ij_2 = clf.predict_proba([M_ij_2])[0][1]
                     p_ij_3 = clf.predict_proba([M_ij_3])[0][1]
-                    p_ij = (p_ij_1 + p_ij_2 + p_ij_3)/3.
+                    p_ij = (p_ij_1 + p_ij_2 + p_ij_3)/3./probScalingFactor
                     
                     p_ij_adjusted = p_ij + c*np.sqrt(p_ij*(1-p_ij))
                     x_ij = np.random.choice([1,0], p = [p_ij_adjusted, 1 - p_ij_adjusted])
                     work_img[px1, px2, px3] = x_ij
                     
                     # Tell the user how much calculations that has been performed:
-                    if curr_px % int(tot_pxs/30) == 0:
-                        print('Iteration '+str(iteration)+':', str(curr_px / tot_pxs * 100) + '%')
+                    #if curr_px % int(tot_pxs/300) == 0:
+                    #    print('Iteration '+str(iteration)+':', str(curr_px / tot_pxs * 100) + '%')
         VF = np.sum(work_img[n:-n, n:-n, n:-n])/tot_pxs
-        if (VF < 1): 
+        print(VF)
+        if (VF < VVF_expected): 
             c += 0.005
-            if (abs(VF-1) <= TOL): break
+            error = VVF_expected / VF
+            if (abs(error-1) <= TOL): break
         else: 
             c -= 0.005
-            if (VF-1 <= TOL): break   
+            error = VF / VVF_expected
+            if (abs(error-1) <= TOL): break   
     final_img = work_img[n:-n, n:-n, n:-n]                    
     return final_img
 
@@ -541,11 +567,35 @@ fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
 plotParticles3D(final_3D_Image)
 
+#plotParticles3D(final_img)
 
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"""
+Everything below was a stupid idea. Instead of generalizing to new data,
+I tried to brute force each possible scenario and store it in a dict.
+There are 2**n possibilities, and each neighborhood is typically 5*5=25,
+and 2**25 is immediately infeasible...
+
+
+CONCLUSION: STOOOOOPID...
+"""
 
 
 # Check what scipy classification tree does with data not encountered before:
