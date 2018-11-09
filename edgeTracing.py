@@ -697,7 +697,7 @@ from shapely import affinity
 affinity.rotate(region_polygon, 120)
 ImageJAngle = 1.
 
-results = ['Area', 'Perimeter', 'MinFeret', 'Feret', 'FeretAngle', 'Circularity']
+results = [('Area', 'Perimeter', 'MinFeret', 'Feret', 'FeretAngle', 'Circularity')]
 for region_polygon in correct_regions:
     # Get area and perimeter
     perimeter = region_polygon.length
@@ -722,7 +722,17 @@ for region_polygon in correct_regions:
     results.append((area, perimeter, minFeret, feret, feretAngle, circularity))
         
 
-
+with open('statisticalResults.txt', 'w') as file:
+    for line in results:
+        line = str(line)[1:-1]
+        line = line.split(',')
+        line = '\t'.join(line)
+        file.write(line+'\n')
+    
+plt.plot([result[0] for result in results[1:]])
+plt.title('Area')
+plt.ylabel('pixels')
+plt.xlabel('Number of particles')
 
 
 

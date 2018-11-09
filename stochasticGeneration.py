@@ -14,7 +14,7 @@ size = (200,200)
 img = np.zeros(size)
 
 # Distribute some squares:
-square = (1,1)
+square = (2,2)
 num_squares = 50
 for n in range(num_squares):
     x_centre = np.random.randint(0,size[0])
@@ -33,8 +33,8 @@ plt.imshow(img, 'gray')
 Create the training set, and calibrate the supervised model
 """
 # Choose neighborhood size:
-w = 4
-h = 4
+w = 5
+h = 5
 
 n1, n2 = size
 # Generate the training set:
@@ -50,13 +50,66 @@ for pixel1 in range(h, n1-h):
         D = (M_ij[:], x_ij)
         T.append(D)
     
-# Calibrate the model:
-clf = tree.DecisionTreeClassifier()
-clf = clf.fit([x[0] for x in T], [x[1] for x in T])
-# To get predicted class (pixel value)
-# clf.predict([[0]*12])
-# To get predicted probability:
-# clf.predict_proba([[0]*9+[1]*3])
+    
+def Calibrate2DModel(training_samples, reference_img):
+    """
+    This function calibrates the model to the training data, by using 
+    cross-validation to adjust the hyperparameters as well 
+    as adjust the probability to obtain the same void volume fraction.
+    """
+    
+    """
+    The first part is using cross-validation to calibrate the model:
+    """
+    # Calibrate the model:
+    clf = tree.DecisionTreeClassifier()
+    clf = clf.fit([x[0] for x in T], [x[1] for x in T])
+    # To get predicted class (pixel value)
+    # clf.predict([[0]*12])
+    # To get predicted probability:
+    # clf.predict_proba([[0]*9+[1]*3])
+
+
+
+    """
+    This latter part adjusts the probability to obtain correct void volume fraction:
+    """
+    size = np.shape(reference_img)
+    new_img = np.zeros((size[0]+8*w, size[1]+8*h))
+        
+    c = 0.
+    TOL = 0.1
+    oneInaRow = False
+    twoInaRow = False
+    while True:
+        work_img = copy.deepcopy(new_img)
+        for pixel1 in range(h, size[0]+4*h):
+            for pixel2 in range(w, size[1]+7*w):
+                subMatrix = work_img[np.ix_(range(pixel1-w,pixel1+w+1), range(pixel2-h,pixel2+h+1))]
+                N_ij_extra = subMatrix.flatten()
+                M_ij = N_ij_extra[:(2*w+1)*h + w]
+                p_ij = clf.predict_proba([M_ij])[0][1]
+                p_ij_adjusted = p_ij + c*np.sqrt(p_ij*(1-p_ij))
+                x_ij = np.random.choice([1,0], p = [p_ij_adjusted, 1 - p_ij_adjusted])
+                work_img[pixel1, pixel2] = x_ij      
+        VF = np.sum(work_img[4*h:-4*h, 4*w:-4*w])/np.sum(reference_img)
+        print('Adjusting the c parameter:', c)
+        if (VF < 1): 
+            c += 0.0002
+            if (abs(VF-1) <= TOL):
+                if oneInaRow: twoInaRow = True
+                oneInaRow = True
+            else: oneInaRow = False
+        else: 
+            c -= 0.0002
+            if (VF-1 <= TOL):
+                if oneInaRow: twoInaRow = True
+                oneInaRow = True
+            else: oneInaRow = False                
+        if twoInaRow: break
+    return clf, c
+clf, c_param = Calibrate2DModel(T, img)
+    
 
 """
 
@@ -142,7 +195,7 @@ ax2.imshow(final_img, 'gray')
 Perhaps the best code so far, for generating images!
 """
 # Generate image from zeroes, less efficient:
-def generateImageFrom0s(size, clf, orig_img=[]):
+def generateImageFrom0s(size, clf, c_param=1., orig_img=[]):
     """
     An image with 4*w at each side, as well as 4*h at both top/bottom are 
     generated, looped through, and the image of shape (size) is 
@@ -152,8 +205,9 @@ def generateImageFrom0s(size, clf, orig_img=[]):
     """
     # Initialize boundaries of a generated image:
     new_img = np.zeros((size[0]+8*w, size[1]+8*h))
-        
-    c = 0.
+    # Read the input classification tree
+    c = c_param
+    #c = 0.
     TOL = 0.15
     while True:
         work_img = copy.deepcopy(new_img)
@@ -167,11 +221,11 @@ def generateImageFrom0s(size, clf, orig_img=[]):
                 x_ij = np.random.choice([1,0], p = [p_ij_adjusted, 1 - p_ij_adjusted])
                 work_img[pixel1, pixel2] = x_ij      
         if len(orig_img) == 0: 
-            print('Generated an image')
+            #print('Generated an image')
             break
         else: # Perform the void volume fraction calibration:
             VF = np.sum(work_img[4*h:-4*h, 4*w:-4*w])/np.sum(orig_img)
-            print(VF)
+            #print(VF)
             if (VF < 1): 
                 c += 0.005
                 if (abs(VF-1) <= TOL): break
@@ -183,18 +237,22 @@ def generateImageFrom0s(size, clf, orig_img=[]):
     return final_img
 
 size = (200,200)
-final_img = generateImageFrom0s(size, clf, img)
-
+final_img = generateImageFrom0s(size, clf, c_param, img)
+#final_img = generateImageFrom0s(size, clf, c_param=0.)
+#plt.imshow(final_img)
 # Plot the generated image(s):
 num_images = 4
 
+images = [img]
 ax = plt.subplot(1,num_images+1, 1)
 ax.set_title('Image from experiments')
 ax.imshow(img, 'gray')
 for i in range(num_images):
     ax = plt.subplot(1,num_images+1, i+2)
     ax.set_title('Generated image')
-    ax.imshow(generateImageFrom0s(size, clf, img), 'gray')
+    curr_img = generateImageFrom0s(size, clf, c_param, img)
+    images.append(curr_img)
+    ax.imshow(curr_img, 'gray')
 
 """
 
@@ -304,6 +362,28 @@ performance = twoPointLinealPathCorrelation(final_img, max_dist)
 plt.plot(range(len(performance)), performance)
 plt.plot(range(len(performance)), performance, 'k*')
 
+
+i = -1
+for curr_img in images:
+    i += 1
+    ax = plt.subplot(1,num_images+1, i+1)
+    ax.set_title('Generated image')
+    performance = twoPointLinealPathCorrelation(curr_img, max_dist)
+    ax.plot(range(len(performance)), performance)
+    ax.plot(range(len(performance)), performance, 'k*')
+plt.figure()
+i = -1
+for curr_img in images:
+    i += 1
+    performance = twoPointLinealPathCorrelation(curr_img, max_dist)
+    if i==0:
+        plt.plot(range(len(performance)), performance, label='Reference')
+        plt.plot(range(len(performance)), performance, 'k*')    
+    else:
+        plt.plot(range(len(performance)), performance, label='Generated')
+        plt.plot(range(len(performance)), performance, 'k*')    
+    plt.legend(loc='best')
+
 # Start with a large neighborhood, and keep decreasing it until the images 
 # likeliness starts to diverge, or opposite...
 
@@ -320,89 +400,8 @@ plt.plot(range(len(performance)), performance, 'k*')
 
 
 
-
-"""
-I think I know how to generate 3D images.
-Create all 3 boundaries, in 3D space. For each pixel, calculate the probability 
-of a 1 pixel, and average these 3 probabilities.
-Then generate the box with distributions!
-"""
-# Should definetely use a square neighborhood, as the material is isotropic and all..
-if w==h: n = h
-else: n=h
-
-# Should also generate a square box, of size equal to box_shape:
-n1 = 25
-n2 = 25
-n3 = 25
-size = (n1, n2, n3)
-
-# Initialize boundaries of a generated image:
-new_img = np.zeros((size[0]+2*n, size[1]+2*n, size[2]+2*n))
-boundaryImgSize1 = (size[0]+n+1, size[1]+n+1)
-boundaryImgSize2 = (size[1]+n+1, size[2]+n+1)
-boundaryImgSize3 = (size[0]+n+1, size[2]+n+1)
-boundaryImg1 = generateImageFrom0s(boundaryImgSize1, clf)
-boundaryImg2 = generateImageFrom0s(boundaryImgSize2, clf)
-boundaryImg3 = generateImageFrom0s(boundaryImgSize3, clf)
-# Must initialize n rows of px's in each dimension. All outer rows are only 0's, 
-# the inner is 6 generated images in correct size!
-new_img[n-1,n-1:,n-1:] = boundaryImg2
-new_img[n-1:,n-1:,n-1] = boundaryImg1
-new_img[n-1:,n-1,n-1:] = boundaryImg3
-
-
-
-
-"""
-Now, the 3D distribution of particles are generated:
-        new_img = np.zeros((size[0]+8*w, size[1]+8*h))
-        
-    c = 0.
-    TOL = 0.15
-    while True:
-        work_img = copy.deepcopy(new_img)
-        for pixel1 in range(h, size[0]+4*h):
-            for pixel2 in range(w, size[1]+7*w):
-                subMatrix = work_img[np.ix_(range(pixel1-w,pixel1+w+1), range(pixel2-h,pixel2+h+1))]
-                N_ij_extra = subMatrix.flatten()
-                M_ij = N_ij_extra[:(2*w+1)*h + w]
-                p_ij = clf.predict_proba([M_ij])[0][1]
-                p_ij_adjusted = p_ij + c*np.sqrt(p_ij*(1-p_ij))
-                x_ij = np.random.choice([1,0], p = [p_ij_adjusted, 1 - p_ij_adjusted])
-                work_img[pixel1, pixel2] = x_ij      
-        if len(orig_img) == 0: 
-            print('Generated an image')
-            break
-        else: # Perform the void volume fraction calibration:
-            VF = np.sum(work_img[4*h:-4*h, 4*w:-4*w])/np.sum(orig_img)
-            print(VF)
-            if (VF < 1): 
-                c += 0.005
-                if (abs(VF-1) <= TOL): break
-            else: 
-                c -= 0.005
-                if (VF-1 <= TOL): break   
-    final_img = work_img[4*h:-4*h, 4*w:-4*w]
-"""
-
-def add(img):
-    return clf.max_depth
-
-@numba.jit(nopython=True)
-def myFunc():
-    num = 0
-    for i in range(100):
-        num += add(img)
-    return num
-myFunc()
-        
-
-
-
-
 #@numba.jit(nopython=True)
-def generate3dDistribution(new_img, clf):
+def generate3dDistribution(new_img, clf, probScalingFactor=1.):
     """
     I could perform a single iteration first, and obtain the void volume fraction.
     Then, depending on how large the error was, I can simply scale the probabilities
@@ -427,17 +426,18 @@ def generate3dDistribution(new_img, clf):
     """
     c = 0.
     VVF_expected = 0.02
-    probScalingFactor = 3.
-    TOL = 0.5
+    TOL = 0.4
     tot_pxs = n1*n2*n3
     curr_px = 0
     iteration = -1
+    size = np.shape(new_img)
     while True:
         iteration += 1
         work_img = copy.deepcopy(new_img)
-        for px1 in range(n, size[0]+n):
-            for px2 in range(n, size[1]+n):
-                for px3 in range(n, size[2]+n):
+        work_img.astype(int)
+        for px1 in range(n, size[0]-n):
+            for px2 in range(n, size[1]-n):
+                for px3 in range(n, size[2]-n):
                     curr_px += 1
                     slice1 = work_img[px1,:,:]
                     slice2 = work_img[:,:,px3]
@@ -454,33 +454,162 @@ def generate3dDistribution(new_img, clf):
                     p_ij_1 = clf.predict_proba([M_ij_1])[0][1]
                     p_ij_2 = clf.predict_proba([M_ij_2])[0][1]
                     p_ij_3 = clf.predict_proba([M_ij_3])[0][1]
-                    p_ij = (p_ij_1 + p_ij_2 + p_ij_3)/3./probScalingFactor
-                    
-                    p_ij_adjusted = p_ij + c*np.sqrt(p_ij*(1-p_ij))
+                    """
+                    I think I know the error:
+                        I am generating the pixels in the wrong order!
+                        Thats why I am getting these diagonal shapes that shouldn't be there.
+                        Perhaps only generate in 3D once, then 2D for the rest of the plane?
+                        
+                    """
+                    if p_ij_1 > 0.99 or p_ij_2 > 0.99 or p_ij_3 > 0.99:
+                        work_img[px1, px2, px3] = 1
+                    elif p_ij_1 < 0.001 or p_ij_2 < 0.001 or p_ij_3 < 0.001:
+                        work_img[px1, px2, px3] = 0
+                    else:
+                        p_ij = (p_ij_1 + p_ij_2 + p_ij_3)/3.
+                        p_ij /= probScalingFactor
+                        x_ij = np.random.choice([1,0], p = [p_ij, 1 - p_ij])
+                        work_img[px1, px2, px3] = x_ij
+                    """
+                    # Added some stuff here to avoid negative probability error:
+                    correctingTerm = c*np.sqrt(p_ij*(1-p_ij))
+                    if correctingTerm < -p_ij:
+                        correctingTerm = -p_ij*0.9
+                    # I should implement a maximum number of attempts as well..
+                    p_ij_adjusted = p_ij + correctingTerm
                     x_ij = np.random.choice([1,0], p = [p_ij_adjusted, 1 - p_ij_adjusted])
                     work_img[px1, px2, px3] = x_ij
-                    
+                    """
                     # Tell the user how much calculations that has been performed:
                     #if curr_px % int(tot_pxs/300) == 0:
                     #    print('Iteration '+str(iteration)+':', str(curr_px / tot_pxs * 100) + '%')
-        VF = np.sum(work_img[n:-n, n:-n, n:-n])/tot_pxs
+        VF = np.sum(work_img[3*n:-3*n, 3*n:-3*n, 3*n:-3*n])/tot_pxs
         print(VF)
-        if (VF < VVF_expected): 
-            c += 0.005
-            error = VVF_expected / VF
-            if (abs(error-1) <= TOL): break
-        else: 
-            c -= 0.005
-            error = VF / VVF_expected
-            if (abs(error-1) <= TOL): break   
+        return work_img[3*n:-3*n, 3*n:-3*n, 3*n:-3*n]
+        # Perform some calibrations of the probability to generate the correct void 
+        # volume faster:
+        """
+        if iteration == 0:
+            VF_old = VF
+            probScalingFactorOld = probScalingFactor
+            probScalingFactor = np.sqrt(VF/VVF_expected)
+        else:
+            VF_new = VF
+            probScalingFactorNew = probScalingFactor
+            K = (VF_new - VF_old) / (probScalingFactorNew - probScalingFactorOld)
+            deltaProb = (VVF_expected-VF_old)/K
+            VF_old = VF_new
+            probScalingFactor += deltaProb
+        
+        """
+        if iteration == 0:
+            # Calibrate the probabilityScalingFactor:
+            probScalingFactor = np.sqrt(VF/VVF_expected)/1.6
+        else:
+            if (VF < VVF_expected): 
+                c += 0.007
+                error = VVF_expected / VF
+                if (abs(error-1) <= TOL): break
+            else: 
+                c -= 0.007
+                error = VF / VVF_expected
+                if (abs(error-1) <= TOL): break  
     final_img = work_img[n:-n, n:-n, n:-n]                    
-    return final_img
+    return final_img, probScalingFactor
 
-final_3D_Image = generate3dDistribution(new_img, clf)
+
+
+
+def generateInitial3D(size, clf):
+    # Initialize boundaries of a generated image:
+    new_img = np.zeros((size[0]+2*n, size[1]+2*n, size[2]+2*n))
+    new_img.astype(int)
+    boundaryImgSize1 = (size[0]+n+1, size[1]+n+1)
+    boundaryImgSize2 = (size[1]+n+1, size[2]+n+1)
+    boundaryImgSize3 = (size[0]+n+1, size[2]+n+1)
+    boundaryImg1 = generateImageFrom0s(boundaryImgSize1, clf, c_param=0.)
+    boundaryImg2 = generateImageFrom0s(boundaryImgSize2, clf, c_param=0.)
+    boundaryImg3 = generateImageFrom0s(boundaryImgSize3, clf, c_param=0.)
+    # Must initialize n rows of px's in each dimension. All outer rows are only 0's, 
+    # the inner is 6 generated images in correct size!
+    new_img[n-1,n-1:,n-1:] = boundaryImg2
+    new_img[n-1:,n-1:,n-1] = boundaryImg1
+    new_img[n-1:,n-1,n-1:] = boundaryImg3
+    return new_img
+
+# Should definetely use a square neighborhood, as the material is isotropic and all..
+n = max(w,h)
+# Should also generate a square box, of size equal to box_shape:
+n1 = 35
+n2 = 35
+n3 = 35
+size = (n1, n2, n3)
+# Generate the image:
+new_img = generateInitial3D(size, clf)
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+#plotParticles3D(new_img)
+plotParticles3D(final_3D_Image)
+
+# Calibrate the model:
+final_3D_Image, probScalingFactor = generate3dDistribution(new_img, clf)
+
+# Generate new images:
+new_img = np.zeros((size[0]+6*n, size[1]+6*n, size[2]+6*n))
+new_img.astype(int)
+final_3D_Image = generate3dDistribution(new_img, clf, probScalingFactor)
+np.shape(final_3D_Image)
+
+#plt.imshow(generateImageFrom0s((200,200), clf))
+
+""" simply some temproarily stuff here, to plot each slice of the image"""
+i = -1
+for row in range(3):
+    for col in range(24):
+        i += 1
+        ax = plt.subplot(6,12, i+1)
+        #ax.set_title('Generated image')
+        #performance = twoPointLinealPathCorrelation(curr_img, max_dist)
+        if row==0:
+            plt.imshow(final_3D_Image[col,:,:])
+        elif row==1:
+            plt.imshow(final_3D_Image[:,col,:])
+        elif row==2:
+            plt.imshow(final_3D_Image[:,:,col])
+""" Just some plotting above..."""
+
+
+
+
+
+
+numStackWidth = 2
+numStackDepth = 2
+numStackHeight = 2
+
+# Create all volume elements and stack them in 3D!!!
+stacked3dImage = np.zeros((n1*numStackWidth+1, n2*numStackDepth+1, n3*numStackHeight+1))
+stacked3dImage.astype(dtype=int)
+for i in range(numStackWidth):
+    for j in range(numStackDepth):
+        for k in range(numStackHeight):
+            initBCs = generateInitial3D(size, clf)
+            box3D = generate3dDistribution(initBCs, clf)
+            stacked3dImage[i*n1:(i+1)*n1, j*n2:(j+1)*n2, k*n3:(k+1)*n3] = box3D
+            
+stacked3dImage = stacked3dImage[:-1, :-1, :-1]
+
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+plotParticles3D(stacked3dImage)
+
+
 
 
 """
 How to plot the generated particles in 3D space:
+Should only be used for relatively small boxes, as this is computationally expensive
+and easily gets confusing with the number of particles in 3D...    
 """
 
 import numpy as np
@@ -568,6 +697,36 @@ ax = fig.add_subplot(111, projection='3d')
 plotParticles3D(final_3D_Image)
 
 #plotParticles3D(final_img)
+
+i = -1
+for row in range(3):
+    for col in range(24):
+        i += 1
+        ax = plt.subplot(6,12, i+1)
+        #ax.set_title('Generated image')
+        #performance = twoPointLinealPathCorrelation(curr_img, max_dist)
+        if row==0:
+            plt.imshow(final_3D_Image[col,:,:])
+        elif row==1:
+            plt.imshow(final_3D_Image[:,col,:])
+        elif row==2:
+            plt.imshow(final_3D_Image[:,:,col])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
