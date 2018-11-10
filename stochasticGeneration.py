@@ -519,89 +519,99 @@ def generate3dDistribution(new_img, clf, probScalingFactor=1.):
 
 
 
-
-def generateInitial3D(size, clf):
-    # Initialize boundaries of a generated image:
-    new_img = np.zeros((size[0]+2*n, size[1]+2*n, size[2]+2*n))
-    new_img.astype(int)
-    boundaryImgSize1 = (size[0]+n+1, size[1]+n+1)
-    boundaryImgSize2 = (size[1]+n+1, size[2]+n+1)
-    boundaryImgSize3 = (size[0]+n+1, size[2]+n+1)
-    boundaryImg1 = generateImageFrom0s(boundaryImgSize1, clf, c_param=0.)
-    boundaryImg2 = generateImageFrom0s(boundaryImgSize2, clf, c_param=0.)
-    boundaryImg3 = generateImageFrom0s(boundaryImgSize3, clf, c_param=0.)
-    # Must initialize n rows of px's in each dimension. All outer rows are only 0's, 
-    # the inner is 6 generated images in correct size!
-    new_img[n-1,n-1:,n-1:] = boundaryImg2
-    new_img[n-1:,n-1:,n-1] = boundaryImg1
-    new_img[n-1:,n-1,n-1:] = boundaryImg3
-    return new_img
-
 # Should definetely use a square neighborhood, as the material is isotropic and all..
+# Should be of the same size as used when calibrating the 2D above..   
 n = max(w,h)
-# Should also generate a square box, of size equal to box_shape:
-n1 = 35
-n2 = 35
-n3 = 35
+# Will now generate a square box, of size equal to box_shape:
+n1 = 50; n2 = 50; n3 = 50
 size = (n1, n2, n3)
-# Generate the image:
-new_img = generateInitial3D(size, clf)
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-#plotParticles3D(new_img)
-plotParticles3D(final_3D_Image)
-
-# Calibrate the model:
-final_3D_Image, probScalingFactor = generate3dDistribution(new_img, clf)
-
-# Generate new images:
+# Calibrate the model
 new_img = np.zeros((size[0]+6*n, size[1]+6*n, size[2]+6*n))
 new_img.astype(int)
+probScalingFactor = 2.
+final_3D_Image, probScalingFactor = generate3dDistribution(new_img, clf)
+# When generating a whole bunch of images; use the calibrated model:
 final_3D_Image = generate3dDistribution(new_img, clf, probScalingFactor)
-np.shape(final_3D_Image)
 
-#plt.imshow(generateImageFrom0s((200,200), clf))
-
-""" simply some temproarily stuff here, to plot each slice of the image"""
-i = -1
-for row in range(3):
-    for col in range(24):
-        i += 1
-        ax = plt.subplot(6,12, i+1)
-        #ax.set_title('Generated image')
-        #performance = twoPointLinealPathCorrelation(curr_img, max_dist)
-        if row==0:
-            plt.imshow(final_3D_Image[col,:,:])
-        elif row==1:
-            plt.imshow(final_3D_Image[:,col,:])
-        elif row==2:
-            plt.imshow(final_3D_Image[:,:,col])
-""" Just some plotting above..."""
-
-
-
-
-
-
-numStackWidth = 2
-numStackDepth = 2
-numStackHeight = 2
-
-# Create all volume elements and stack them in 3D!!!
-stacked3dImage = np.zeros((n1*numStackWidth+1, n2*numStackDepth+1, n3*numStackHeight+1))
-stacked3dImage.astype(dtype=int)
-for i in range(numStackWidth):
-    for j in range(numStackDepth):
-        for k in range(numStackHeight):
-            initBCs = generateInitial3D(size, clf)
-            box3D = generate3dDistribution(initBCs, clf)
-            stacked3dImage[i*n1:(i+1)*n1, j*n2:(j+1)*n2, k*n3:(k+1)*n3] = box3D
-            
-stacked3dImage = stacked3dImage[:-1, :-1, :-1]
-
+# Plot the 3D distribution of particles as such:
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
-plotParticles3D(stacked3dImage)
+plotParticles3D(final_3D_Image)
+
+# Plot all slices of the image, or up until an upper limit of 20 in each x,y,z direction:
+def plotSlicesOf3D(final_3D_Image):
+    i = -1
+    fig, axes = plt.subplots(nrows=6, ncols=10, figsize=(12, 8))
+    ylabels = iter(['X','X','Y','Y','Z','Z'])         
+    for row, col_num in zip(range(3), (n1,n2,n3)):
+        for col in np.linspace(0,col_num-1, 20, dtype=int):
+            i += 1
+            ax = plt.subplot(6,10, i+1)
+            if i%10 == 0:
+                ax.set_ylabel(next(ylabels)+'-direction', rotation=0, size='large')
+                ax.yaxis.set_label_coords(-0.99,0.5)
+            ax.set_title('Slice {}'.format(i%20+1))
+            #ax.set_title('Generated image')
+            #performance = twoPointLinealPathCorrelation(curr_img, max_dist)
+            if row==0:
+                plt.imshow(final_3D_Image[col,:,:])
+            elif row==1:
+                plt.imshow(final_3D_Image[:,col,:])
+            elif row==2:
+                plt.imshow(final_3D_Image[:,:,col])
+    plt.subplots_adjust(wspace = 0.5, hspace = 0.5)
+plotSlicesOf3D(final_3D_Image)                
+        
+
+# Perform 2-point correlation on each slice of the image:
+def twoPointCorrelation3DSlices(final_3D_Image):            
+    img_slices=[]
+    for direction, slices in zip(range(3), np.shape(final_3D_Image)):
+        for sl in range(slices):
+            if row==0:
+                img_slices.append(final_3D_Image[sl,:,:])
+            elif row==1:
+                img_slices.append(final_3D_Image[:,sl,:])
+            elif row==2:
+                img_slices.append(final_3D_Image[:,:,sl])  
+    performance_list = []
+    temp_shape = np.shape(img_slices[0])            
+    max_dist = temp_shape[0]/6
+    for final_img in img_slices:
+        performance = twoPointLinealPathCorrelation(final_img, max_dist)
+        performance_list.append(performance)
+    return performance_list
+
+performances = twoPointCorrelation3DSlices(final_3D_Image)
+for performance in performances:
+    plt.plot(range(len(performance)), performance)
+    plt.plot(range(len(performance)), performance, 'k*')            
+    
+# For larger slices, this would ideally converge to the same values 
+# for all slices in the 3D distribution. It is actually looking quite good!
+
+# Could e.g. tweak the probScalingFactor until the MSE is minimized for the 3D box.
+# This would be a very nice way of keeping the probability distribution identical 
+# when expanding from 2D to 3D.    
+
+"""
+I could perform the 2point correlation in a 3D box, although perhaps not.
+What I SHOULD do, is to tweak the probScalingFactor in 3D generation.
+    If the void volume fraction in 2D training image is A_2D, 
+    then the expected 3D volume should be:
+        A_3D = np.sqrt(A_2D)**3
+EX: 0.1 probability to lie on a line, 0.1**2 to lie on a 2D plane, 0.1**3 in a 3D space...
+
+
+Should perhaps bind all the functions to a Class. 
+    This would make it wayy easier to perform all the functions in correct order,
+    as well as using attributes of the object instead of relying on unchanged global
+    variables!       
+"""
+
+
+
+
 
 
 
@@ -727,6 +737,40 @@ for row in range(3):
 
 
 
+
+
+
+
+
+
+
+
+"""
+If I were to wish for stacking of images:
+    I do not think this is needed. When using this in Abaqus, I have 2 options:
+        Option 1 - Perform a micromechanical simulation, where each pixel is a unique 
+            element in Abaqus. 
+"""
+
+numStackWidth = 2
+numStackDepth = 2
+numStackHeight = 2
+
+# Create all volume elements and stack them in 3D!!!
+stacked3dImage = np.zeros((n1*numStackWidth+1, n2*numStackDepth+1, n3*numStackHeight+1))
+stacked3dImage.astype(dtype=int)
+for i in range(numStackWidth):
+    for j in range(numStackDepth):
+        for k in range(numStackHeight):
+            initBCs = generateInitial3D(size, clf)
+            box3D = generate3dDistribution(initBCs, clf)
+            stacked3dImage[i*n1:(i+1)*n1, j*n2:(j+1)*n2, k*n3:(k+1)*n3] = box3D
+            
+stacked3dImage = stacked3dImage[:-1, :-1, :-1]
+
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+plotParticles3D(stacked3dImage)
 
 
 
